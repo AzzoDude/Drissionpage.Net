@@ -1,4 +1,4 @@
-name: Compile Win x64
+name: Compile Win x64 (Python 3.13)
 on:
   workflow_dispatch:
     inputs:
@@ -7,38 +7,75 @@ on:
         required: true
         default: 'v4.1.0.17'
 
+permissions:
+  contents: write
+
 jobs:
   build-x64:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python
+
+      - name: Set up Python 3.13
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.13'
           architecture: 'x64'
 
-      - name: Install & Build
+      - name: Install Dependencies
         run: |
-          pip install nuitka requests cssselect
-          choco install upx -y
-          # Download DrissionPage logic
-          $V = "${{ github.event.inputs.version }}"
-          Invoke-WebRequest -Uri "https://github.com/g1879/DrissionPage/archive/refs/tags/$V.zip" -OutFile "src.zip"
-          Expand-Archive "src.zip" -DestinationPath "."
-          Move-Item "DrissionPage-*" "DrissionPage"
-          
-          # Nuitka Compile
-          python -m nuitka --module --lto=yes --follow-import-to=DrissionPage --output-dir=out_std DrissionPage
-          
-          # Prepare Standard and UPX (Commercial Flags)
-          mkdir out_final
-          $file = Get-ChildItem out_std/*.pyd | Select-Object -First 1
-          Copy-Item $file.FullName "out_final/drissionpage_win_amd64.pyd"
-          Copy-Item $file.FullName "out_final/drissionpage_upx_win_amd64.pyd"
-          upx --best --metadata=0 --strip-relocs=0 "out_final/drissionpage_upx_win_amd64.pyd"
+          pip install nuitka requests cssselect setuptools
 
-      - name: Upload
+      - name: Download DrissionPage Source
+        shell: pwsh
+        run: |
+          $V = "${{ github.event.inputs.version }}"
+          $URL = "https://github.com/g1879/DrissionPage/archive/refs/tags/$V.zip"
+          Write-Host "Downloading $URL..."
+          Invoke-WebRequest -Uri $URL -OutFile "src.zip"
+          Expand-Archive "src.zip" -DestinationPath "."
+          
+          # Find and rename extracted folder
+          $Extracted = Get-ChildItem -Directory -Filter "DrissionPage-*" | Select-Object -First 1
+          if ($Extracted) {
+              Rename-Item -Path $Extracted.FullName -NewName "DrissionPage"
+          }
+          
+          # Install source requirements if they exist
+          if (Test-Path "DrissionPage/requirements.txt") { 
+              pip install -r DrissionPage/requirements.txt 
+          }
+
+      - name: Compile x64
+        shell: pwsh
+        run: |
+          # --module: Compiles as a .pyd
+          # --lto=yes: Link Time Optimization for performance
+          # --follow-import-to: Ingests all submodules of DrissionPage into the binary
+          python -m nuitka --module `
+            --lto=yes `
+            --follow-import-to=DrissionPage `
+            --output-dir=out_x64 `
+            --jobs=2 `
+            DrissionPage
+
+      - name: Prepare Final Binary
+        shell: pwsh
+        run: |
+          if (!(Test-Path "out_final")) { New-Item -ItemType Directory -Path "out_final" }
+          
+          $file = Get-ChildItem out_x64/*.pyd | Select-Object -First 1
+          
+          if ($file) {
+              $TargetName = "drissionpage_win_amd64.pyd"
+              Copy-Item $file.FullName "out_final/$TargetName"
+              Write-Host "Prepared: $TargetName"
+          } else {
+              Write-Error "FATAL: No .pyd file found in out_x64/"
+              exit 1
+          }
+
+      - name: Upload x64 Artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-x64
