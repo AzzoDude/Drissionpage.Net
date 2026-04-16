@@ -32,11 +32,7 @@ jobs:
           URL="https://github.com/g1879/DrissionPage/archive/refs/tags/${VERSION}.zip"
           curl -L -o drission.zip "$URL"
           unzip drission.zip
-          
-          # Find the extracted folder (e.g., DrissionPage-4.1.0.17)
           EXTRACTED_DIR=$(ls -d DrissionPage-*)
-          
-          # RENAME to exactly 'DrissionPage' so Nuitka is happy in module mode
           mv "$EXTRACTED_DIR" DrissionPage
 
       - name: Install Dependencies
@@ -49,8 +45,6 @@ jobs:
       - name: Compile with Nuitka
         shell: bash
         run: |
-          # Compiling as a module to create the .pyd
-          # Using --output-dir to keep the build organized
           python -m nuitka --module \
             --lto=yes \
             --assume-yes-for-downloads \
@@ -64,36 +58,28 @@ jobs:
           $TargetDir = "deploy_folder/releases/$VERSION"
           if (!(Test-Path $TargetDir)) { New-Item -ItemType Directory -Force -Path $TargetDir }
           
-          # Nuitka puts output in build_out. 
-          # We search for the .pyd and rename it to your exact target name.
           $CompiledFile = Get-ChildItem -Path "build_out" -Filter "DrissionPage*.pyd" | Select-Object -First 1
           $FinalName = "drissionpage_win_amd64.pyd"
           
           if ($CompiledFile) {
               Copy-Item $CompiledFile.FullName "$TargetDir/$FinalName"
-              
-              # Generate SHA256 Hash
               $Hash = (Get-FileHash "$TargetDir/$FinalName" -Algorithm SHA256).Hash
               $Hash | Out-File -FilePath "$TargetDir/hash.txt" -Encoding ascii
               
-              # Create index.html for this specific release
               $Html = @"
           <html>
-          <head><title>DrissionPage $VERSION Build</title></head>
           <body>
             <h1>DrissionPage $VERSION</h1>
-            <p>Compiled with Nuitka (LTO Enabled)</p>
             <ul>
               <li><a href='$FinalName'>Download $FinalName</a></li>
               <li><a href='hash.txt'>SHA256 Hash</a></li>
             </ul>
-            <p>Built on: $((Get-Date).ToString())</p>
           </body>
           </html>
           "@
               $Html | Out-File -FilePath "$TargetDir/index.html" -Encoding utf8
           } else {
-              Write-Error "FATAL: Compiled .pyd file not found in build_out directory!"
+              Write-Error "FATAL: Compiled .pyd file not found!"
               exit 1
           }
 
@@ -102,7 +88,12 @@ jobs:
         with:
           folder: deploy_folder
           branch: gh-pages
-          clean: false # Keeps old releases from being deleted
-          # Forces the action to use Git instead of rsync (which fails on Windows)
+          clean: false
+          # CRITICAL FOR WINDOWS: This forces the use of internal git 
+          # instead of searching for rsync.exe
           git-config-name: AzzoDude
           git-config-email: AzzoDude@users.noreply.github.com
+          repository-name: ${{ github.repository }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # This prevents the action from trying to use rsync for performance
+          single-commit: false
