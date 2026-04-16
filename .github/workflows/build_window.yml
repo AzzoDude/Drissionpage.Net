@@ -36,7 +36,7 @@ jobs:
           # Find the extracted folder (e.g., DrissionPage-4.1.0.17)
           EXTRACTED_DIR=$(ls -d DrissionPage-*)
           
-          # RENAME to exactly 'DrissionPage' so Nuitka is happy
+          # RENAME to exactly 'DrissionPage' so Nuitka is happy in module mode
           mv "$EXTRACTED_DIR" DrissionPage
 
       - name: Install Dependencies
@@ -49,8 +49,8 @@ jobs:
       - name: Compile with Nuitka
         shell: bash
         run: |
-          # We call Nuitka on the 'DrissionPage' folder. 
-          # We use --output-dir to keep the root clean.
+          # Compiling as a module to create the .pyd
+          # Using --output-dir to keep the build organized
           python -m nuitka --module \
             --lto=yes \
             --assume-yes-for-downloads \
@@ -64,23 +64,36 @@ jobs:
           $TargetDir = "deploy_folder/releases/$VERSION"
           if (!(Test-Path $TargetDir)) { New-Item -ItemType Directory -Force -Path $TargetDir }
           
-          # Nuitka puts the output in the --output-dir (build_out)
-          # It will likely be named DrissionPage.cp310-win_amd64.pyd
+          # Nuitka puts output in build_out. 
+          # We search for the .pyd and rename it to your exact target name.
           $CompiledFile = Get-ChildItem -Path "build_out" -Filter "DrissionPage*.pyd" | Select-Object -First 1
           $FinalName = "drissionpage_win_amd64.pyd"
           
           if ($CompiledFile) {
               Copy-Item $CompiledFile.FullName "$TargetDir/$FinalName"
               
-              # Generate Hash
+              # Generate SHA256 Hash
               $Hash = (Get-FileHash "$TargetDir/$FinalName" -Algorithm SHA256).Hash
               $Hash | Out-File -FilePath "$TargetDir/hash.txt" -Encoding ascii
               
-              # Simple HTML
-              $Html = "<html><body><h1>DrissionPage $VERSION</h1><a href='$FinalName'>$FinalName</a><br><a href='hash.txt'>Hash (SHA256)</a></body></html>"
+              # Create index.html for this specific release
+              $Html = @"
+          <html>
+          <head><title>DrissionPage $VERSION Build</title></head>
+          <body>
+            <h1>DrissionPage $VERSION</h1>
+            <p>Compiled with Nuitka (LTO Enabled)</p>
+            <ul>
+              <li><a href='$FinalName'>Download $FinalName</a></li>
+              <li><a href='hash.txt'>SHA256 Hash</a></li>
+            </ul>
+            <p>Built on: $((Get-Date).ToString())</p>
+          </body>
+          </html>
+          "@
               $Html | Out-File -FilePath "$TargetDir/index.html" -Encoding utf8
           } else {
-              Write-Error "Compiled .pyd file not found in build_out directory!"
+              Write-Error "FATAL: Compiled .pyd file not found in build_out directory!"
               exit 1
           }
 
@@ -89,4 +102,7 @@ jobs:
         with:
           folder: deploy_folder
           branch: gh-pages
-          clean: false
+          clean: false # Keeps old releases from being deleted
+          # Forces the action to use Git instead of rsync (which fails on Windows)
+          git-config-name: AzzoDude
+          git-config-email: AzzoDude@users.noreply.github.com
