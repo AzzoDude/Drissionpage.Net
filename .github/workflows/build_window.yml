@@ -33,33 +33,29 @@ jobs:
           curl -L -o drission.zip "$URL"
           unzip drission.zip
           
-          # Use wildcard to find the extracted folder regardless of the exact name
+          # Find the extracted folder (e.g., DrissionPage-4.1.0.17)
           EXTRACTED_DIR=$(ls -d DrissionPage-*)
-          echo "Extracted directory: $EXTRACTED_DIR"
           
-          # Move the actual package source (which is the subfolder inside the extracted dir)
-          # We move the content to a fixed 'DrissionPage' folder in the root
-          mv "$EXTRACTED_DIR" DrissionPageSource
+          # RENAME to exactly 'DrissionPage' so Nuitka is happy
+          mv "$EXTRACTED_DIR" DrissionPage
 
       - name: Install Dependencies
         run: |
           pip install nuitka requests cssselect setuptools
-          # Now the path is guaranteed to be DrissionPageSource/requirements.txt
-          if (Test-Path "DrissionPageSource/requirements.txt") {
-            pip install -r DrissionPageSource/requirements.txt
+          if (Test-Path "DrissionPage/requirements.txt") {
+            pip install -r DrissionPage/requirements.txt
           }
 
       - name: Compile with Nuitka
         shell: bash
         run: |
-          # We tell Nuitka to compile the folder 'DrissionPageSource' 
-          # but name the output what you requested.
+          # We call Nuitka on the 'DrissionPage' folder. 
+          # We use --output-dir to keep the root clean.
           python -m nuitka --module \
             --lto=yes \
             --assume-yes-for-downloads \
-            --include-package=DrissionPageSource \
-            --output-filename=drissionpage_win_amd64 \
-            DrissionPageSource
+            --output-dir=build_out \
+            DrissionPage
 
       - name: Prepare Assets & Update Pages
         shell: pwsh
@@ -68,8 +64,9 @@ jobs:
           $TargetDir = "deploy_folder/releases/$VERSION"
           if (!(Test-Path $TargetDir)) { New-Item -ItemType Directory -Force -Path $TargetDir }
           
-          # Find the compiled file (Nuitka usually adds suffix, we rename to clean)
-          $CompiledFile = Get-ChildItem -Filter "drissionpage_win_amd64*.pyd" | Select-Object -First 1
+          # Nuitka puts the output in the --output-dir (build_out)
+          # It will likely be named DrissionPage.cp310-win_amd64.pyd
+          $CompiledFile = Get-ChildItem -Path "build_out" -Filter "DrissionPage*.pyd" | Select-Object -First 1
           $FinalName = "drissionpage_win_amd64.pyd"
           
           if ($CompiledFile) {
@@ -83,7 +80,7 @@ jobs:
               $Html = "<html><body><h1>DrissionPage $VERSION</h1><a href='$FinalName'>$FinalName</a><br><a href='hash.txt'>Hash (SHA256)</a></body></html>"
               $Html | Out-File -FilePath "$TargetDir/index.html" -Encoding utf8
           } else {
-              Write-Error "Compiled .pyd file not found!"
+              Write-Error "Compiled .pyd file not found in build_out directory!"
               exit 1
           }
 
