@@ -69,13 +69,12 @@ jobs:
               $Html = @"
           <html>
           <body style='font-family: sans-serif; padding: 20px;'>
-            <h1>DrissionPage $VERSION (Windows x64)</h1>
+            <h1>DrissionPage $VERSION</h1>
             <hr>
             <ul>
-              <li><a href='$FinalName'>Download Compiled .pyd</a></li>
+              <li><a href='$FinalName'>Download $FinalName</a></li>
               <li><a href='hash.txt'>SHA256 Hash</a></li>
             </ul>
-            <p>Generated on: $(Get-Date)</p>
           </body>
           </html>
           "@
@@ -84,6 +83,10 @@ jobs:
               Write-Error "FATAL: Compiled .pyd file not found!"
               exit 1
           }
+
+      # This step installs the missing requirement for the deployment action
+      - name: Install rsync for Windows
+        run: choco install rsync -y
 
       - name: Deploy to GitHub Pages 🚀
         uses: JamesIves/github-pages-deploy-action@v4
