@@ -1,4 +1,4 @@
-name: Compile Win ARM64
+name: Compile Win ARM64 (Python 3.13)
 on:
   workflow_dispatch:
     inputs:
@@ -7,37 +7,31 @@ on:
         required: true
         default: 'v4.1.0.17'
 
+permissions:
+  contents: write
+
 jobs:
   build-arm64:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python
+
+      - name: Set up Python 3.13
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.13'
+          architecture: 'x64' # We use x64 Python to drive the cross-compiler
 
-      - name: Build ARM64
+      - name: Install Dependencies
         run: |
-          pip install nuitka requests cssselect
+          pip install nuitka requests cssselect setuptools
           choco install upx -y
-          # Setup DrissionPage Source...
-          $V = "${{ github.event.inputs.version }}"
-          Invoke-WebRequest -Uri "https://github.com/g1879/DrissionPage/archive/refs/tags/$V.zip" -OutFile "src.zip"
-          Expand-Archive "src.zip" -DestinationPath "."
-          Move-Item "DrissionPage-*" "DrissionPage"
-          
-          # Nuitka Cross-Compile for ARM64
-          python -m nuitka --module --lto=yes --follow-import-to=DrissionPage --output-dir=out_arm DrissionPage
-          
-          mkdir out_final
-          $file = Get-ChildItem out_arm/*.pyd | Select-Object -First 1
-          Copy-Item $file.FullName "out_final/drissionpage_win_arm64.pyd"
-          Copy-Item $file.FullName "out_final/drissionpage_upx_win_arm64.pyd"
-          upx --best --metadata=0 --strip-relocs=0 "out_final/drissionpage_upx_win_arm64.pyd"
 
-      - name: Upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-arm64
-          path: out_final/
+      - name: Download DrissionPage Source
+        shell: pwsh
+        run: |
+          $V = "${{ github.event.inputs.version }}"
+          $URL = "https://github.com/g1879/DrissionPage/archive/refs/tags/$V.zip"
+          Invoke-WebRequest -Uri $URL -OutFile "src.zip"
+          Expand-Archive "src.zip" -DestinationPath "."
+          $Extracted = Get-ChildItem -Directory -Filter "DrissionPage-*" | Select-
