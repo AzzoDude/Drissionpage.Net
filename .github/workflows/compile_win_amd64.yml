@@ -1,0 +1,45 @@
+name: Compile Win x64
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'DrissionPage Version'
+        required: true
+        default: 'v4.1.0.17'
+
+jobs:
+  build-x64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          architecture: 'x64'
+
+      - name: Install & Build
+        run: |
+          pip install nuitka requests cssselect
+          choco install upx -y
+          # Download DrissionPage logic
+          $V = "${{ github.event.inputs.version }}"
+          Invoke-WebRequest -Uri "https://github.com/g1879/DrissionPage/archive/refs/tags/$V.zip" -OutFile "src.zip"
+          Expand-Archive "src.zip" -DestinationPath "."
+          Move-Item "DrissionPage-*" "DrissionPage"
+          
+          # Nuitka Compile
+          python -m nuitka --module --lto=yes --follow-import-to=DrissionPage --output-dir=out_std DrissionPage
+          
+          # Prepare Standard and UPX (Commercial Flags)
+          mkdir out_final
+          $file = Get-ChildItem out_std/*.pyd | Select-Object -First 1
+          Copy-Item $file.FullName "out_final/drissionpage_win_amd64.pyd"
+          Copy-Item $file.FullName "out_final/drissionpage_upx_win_amd64.pyd"
+          upx --best --metadata=0 --strip-relocs=0 "out_final/drissionpage_upx_win_amd64.pyd"
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: out_final/
