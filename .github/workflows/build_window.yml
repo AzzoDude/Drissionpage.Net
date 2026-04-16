@@ -68,12 +68,14 @@ jobs:
               
               $Html = @"
           <html>
-          <body>
-            <h1>DrissionPage $VERSION</h1>
+          <body style='font-family: sans-serif; padding: 20px;'>
+            <h1>DrissionPage $VERSION (Windows x64)</h1>
+            <hr>
             <ul>
-              <li><a href='$FinalName'>Download $FinalName</a></li>
+              <li><a href='$FinalName'>Download Compiled .pyd</a></li>
               <li><a href='hash.txt'>SHA256 Hash</a></li>
             </ul>
+            <p>Generated on: $(Get-Date)</p>
           </body>
           </html>
           "@
@@ -89,11 +91,7 @@ jobs:
           folder: deploy_folder
           branch: gh-pages
           clean: false
-          # CRITICAL FOR WINDOWS: This forces the use of internal git 
-          # instead of searching for rsync.exe
+          single-commit: true
           git-config-name: AzzoDude
           git-config-email: AzzoDude@users.noreply.github.com
-          repository-name: ${{ github.repository }}
           token: ${{ secrets.GITHUB_TOKEN }}
-          # This prevents the action from trying to use rsync for performance
-          single-commit: false
