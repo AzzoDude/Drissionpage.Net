@@ -19,7 +19,7 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Necessary for pushing back to the repo
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -57,30 +57,49 @@ jobs:
         shell: pwsh
         run: |
           $VERSION = "${{ github.event.inputs.version }}"
-          $TargetDir = "deploy_folder/releases/$VERSION"
-          if (!(Test-Path $TargetDir)) { New-Item -ItemType Directory -Force -Path $TargetDir }
+          $DeployDir = "deploy_folder"
+          $ReleaseDir = "$DeployDir/releases/$VERSION"
+          
+          if (!(Test-Path $ReleaseDir)) { New-Item -ItemType Directory -Force -Path $ReleaseDir }
           
           $CompiledFile = Get-ChildItem -Path "build_out" -Filter "DrissionPage*.pyd" | Select-Object -First 1
           $FinalName = "drissionpage_win_amd64.pyd"
           
           if ($CompiledFile) {
-              Copy-Item $CompiledFile.FullName "$TargetDir/$FinalName"
-              $Hash = (Get-FileHash "$TargetDir/$FinalName" -Algorithm SHA256).Hash
-              $Hash | Out-File -FilePath "$TargetDir/hash.txt" -Encoding ascii
+              # 1. Copy the binary and hash
+              Copy-Item $CompiledFile.FullName "$ReleaseDir/$FinalName"
+              $Hash = (Get-FileHash "$ReleaseDir/$FinalName" -Algorithm SHA256).Hash
+              $Hash | Out-File -FilePath "$ReleaseDir/hash.txt" -Encoding ascii
               
-              $Html = @"
+              # 2. Create the version-specific HTML
+              $VersionHtml = @"
           <html>
-          <body style='font-family: sans-serif; padding: 30px; line-height: 1.6;'>
-            <h1>DrissionPage $VERSION Build</h1>
-            <div style='background: #f4f4f4; padding: 15px; border-radius: 8px;'>
-              <p><strong>Binary:</strong> <a href='$FinalName'>$FinalName</a></p>
-              <p><strong>SHA256:</strong> <a href='hash.txt'>View Hash</a></p>
-            </div>
-            <p><small>Automated build for AzzoDude</small></p>
+          <body style='font-family: sans-serif; padding: 30px;'>
+            <h1>DrissionPage $VERSION</h1>
+            <a href='$FinalName'>Download .pyd</a><br>
+            <a href='hash.txt'>SHA256 Hash</a><br><br>
+            <a href='../../index.html'>← Back to all releases</a>
           </body>
           </html>
           "@
-              $Html | Out-File -FilePath "$TargetDir/index.html" -Encoding utf8
+              $VersionHtml | Out-File -FilePath "$ReleaseDir/index.html" -Encoding utf8
+
+              # 3. CRITICAL: Create the ROOT index.html so you don't get a 404
+              $RootHtml = @"
+          <html>
+          <body style='font-family: sans-serif; padding: 50px; background: #fafafa;'>
+            <div style='max-width: 600px; margin: auto; background: white; padding: 20px; border: 1px solid #ddd; border-radius: 8px;'>
+              <h2>DrissionPage.Net Releases</h2>
+              <hr>
+              <p>Latest Build: <strong>$VERSION</strong></p>
+              <ul>
+                <li><a href='releases/$VERSION/index.html'>View $VERSION Files</a></li>
+              </ul>
+            </div>
+          </body>
+          </html>
+          "@
+              $RootHtml | Out-File -FilePath "$DeployDir/index.html" -Encoding utf8
           } else {
               Write-Error "FATAL: Compiled .pyd file not found!"
               exit 1
@@ -89,18 +108,14 @@ jobs:
       - name: Deploy via Pure Git 🚀
         shell: pwsh
         run: |
-          # Configure Identity
           git config --global user.name "AzzoDude"
           git config --global user.email "AzzoDude@users.noreply.github.com"
           
-          # Initialize the deploy folder as a separate repo
           cd deploy_folder
           git init
           git checkout -b gh-pages
           git add .
-          git commit -m "Deploy DrissionPage ${{ github.event.inputs.version }} to Pages"
+          git commit -m "Deploy DrissionPage ${{ github.event.inputs.version }}"
           
-          # Force push to the gh-pages branch of your repo
-          # The GITHUB_TOKEN is used for authentication
           $RepoUrl = "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
           git push $RepoUrl gh-pages --force
