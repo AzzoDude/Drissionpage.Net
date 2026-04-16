@@ -1,4 +1,4 @@
-name: build window
+name: Compile DrissionPage to PYD
 
 on:
   workflow_dispatch:
@@ -19,49 +19,48 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@v4
 
-      - name: Download DrissionPage Source
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          architecture: 'x64'
+
+      - name: Download & Extract DrissionPage
         shell: bash
         run: |
           VERSION="${{ github.event.inputs.version }}"
           URL="https://github.com/g1879/DrissionPage/archive/refs/tags/${VERSION}.zip"
           curl -L -o drission.zip "$URL"
           unzip drission.zip
-          # Move the inner package folder to the root so it's importable
-          mv DrissionPage-${VERSION/v/}/DrissionPage . 
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
+          # Move the actual package folder to the current directory
+          mv DrissionPage-${VERSION/v/}/DrissionPage .
 
       - name: Install Dependencies
         run: |
           pip install nuitka requests cssselect setuptools
+          # Important: Install DrissionPage requirements so Nuitka can resolve them
+          pip install -r DrissionPage/requirements.txt || true
 
       - name: Compile with Nuitka
-        uses: Nuitka/Nuitka-Action@main
-        with:
-          nuitka-version: main
-          # Point to the directory name, not a path
-          script-name: DrissionPage 
-          mode: module
-          lto: yes
-          # We manually set the filename in the next step to avoid Nuitka naming conflicts
-          show-progress: true
-          # Added flags to ensure it treats the folder as a package correctly
-          extra-args: >
-            --assume-yes-for-downloads
-            --include-package=DrissionPage
+        shell: bash
+        run: |
+          python -m nuitka --module \
+            --lto=yes \
+            --assume-yes-for-downloads \
+            --include-package=DrissionPage \
+            --output-filename=drissionpage_win_amd64 \
+            DrissionPage
 
       - name: Prepare Assets & Update Pages
         shell: pwsh
         run: |
           $VERSION = "${{ github.event.inputs.version }}"
           $TargetDir = "deploy_folder/releases/$VERSION"
-          New-Item -ItemType Directory -Force -Path $TargetDir
+          if (!(Test-Path $TargetDir)) { New-Item -ItemType Directory -Force -Path $TargetDir }
           
-          # Nuitka in module mode creates DrissionPage.pyd (or similar)
-          $CompiledFile = Get-ChildItem -Filter "DrissionPage*.pyd" | Select-Object -First 1
+          # Nuitka might name it drissionpage_win_amd64.cp310-win_amd64.pyd 
+          # We force it to exactly what you want
+          $CompiledFile = Get-ChildItem -Filter "drissionpage_win_amd64*.pyd" | Select-Object -First 1
           $FinalName = "drissionpage_win_amd64.pyd"
           
           Copy-Item $CompiledFile.FullName "$TargetDir/$FinalName"
@@ -70,13 +69,13 @@ jobs:
           $Hash = (Get-FileHash "$TargetDir/$FinalName" -Algorithm SHA256).Hash
           $Hash | Out-File -FilePath "$TargetDir/hash.txt" -Encoding ascii
           
-          # Create index.html
-          $HtmlContent = "<html><body><h1>DrissionPage $VERSION</h1><a href='$FinalName'>Download PYD</a><br><a href='hash.txt'>Hash</a></body></html>"
-          $HtmlContent | Out-File -FilePath "$TargetDir/index.html" -Encoding utf8
+          # Simple HTML for the version
+          $Html = "<html><body><h1>DrissionPage $VERSION</h1><a href='$FinalName'>$FinalName</a><br><a href='hash.txt'>Hash</a></body></html>"
+          $Html | Out-File -FilePath "$TargetDir/index.html" -Encoding utf8
 
       - name: Deploy to GitHub Pages 🚀
         uses: JamesIves/github-pages-deploy-action@v4
         with:
           folder: deploy_folder
           branch: gh-pages
-          clean: false # Important: false prevents deleting old releases
+          clean: false
