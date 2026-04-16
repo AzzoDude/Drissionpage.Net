@@ -32,24 +32,34 @@ jobs:
           URL="https://github.com/g1879/DrissionPage/archive/refs/tags/${VERSION}.zip"
           curl -L -o drission.zip "$URL"
           unzip drission.zip
-          # Move the actual package folder to the current directory
-          mv DrissionPage-${VERSION/v/}/DrissionPage .
+          
+          # Use wildcard to find the extracted folder regardless of the exact name
+          EXTRACTED_DIR=$(ls -d DrissionPage-*)
+          echo "Extracted directory: $EXTRACTED_DIR"
+          
+          # Move the actual package source (which is the subfolder inside the extracted dir)
+          # We move the content to a fixed 'DrissionPage' folder in the root
+          mv "$EXTRACTED_DIR" DrissionPageSource
 
       - name: Install Dependencies
         run: |
           pip install nuitka requests cssselect setuptools
-          # Important: Install DrissionPage requirements so Nuitka can resolve them
-          pip install -r DrissionPage/requirements.txt || true
+          # Now the path is guaranteed to be DrissionPageSource/requirements.txt
+          if (Test-Path "DrissionPageSource/requirements.txt") {
+            pip install -r DrissionPageSource/requirements.txt
+          }
 
       - name: Compile with Nuitka
         shell: bash
         run: |
+          # We tell Nuitka to compile the folder 'DrissionPageSource' 
+          # but name the output what you requested.
           python -m nuitka --module \
             --lto=yes \
             --assume-yes-for-downloads \
-            --include-package=DrissionPage \
+            --include-package=DrissionPageSource \
             --output-filename=drissionpage_win_amd64 \
-            DrissionPage
+            DrissionPageSource
 
       - name: Prepare Assets & Update Pages
         shell: pwsh
@@ -58,20 +68,24 @@ jobs:
           $TargetDir = "deploy_folder/releases/$VERSION"
           if (!(Test-Path $TargetDir)) { New-Item -ItemType Directory -Force -Path $TargetDir }
           
-          # Nuitka might name it drissionpage_win_amd64.cp310-win_amd64.pyd 
-          # We force it to exactly what you want
+          # Find the compiled file (Nuitka usually adds suffix, we rename to clean)
           $CompiledFile = Get-ChildItem -Filter "drissionpage_win_amd64*.pyd" | Select-Object -First 1
           $FinalName = "drissionpage_win_amd64.pyd"
           
-          Copy-Item $CompiledFile.FullName "$TargetDir/$FinalName"
-          
-          # Generate Hash
-          $Hash = (Get-FileHash "$TargetDir/$FinalName" -Algorithm SHA256).Hash
-          $Hash | Out-File -FilePath "$TargetDir/hash.txt" -Encoding ascii
-          
-          # Simple HTML for the version
-          $Html = "<html><body><h1>DrissionPage $VERSION</h1><a href='$FinalName'>$FinalName</a><br><a href='hash.txt'>Hash</a></body></html>"
-          $Html | Out-File -FilePath "$TargetDir/index.html" -Encoding utf8
+          if ($CompiledFile) {
+              Copy-Item $CompiledFile.FullName "$TargetDir/$FinalName"
+              
+              # Generate Hash
+              $Hash = (Get-FileHash "$TargetDir/$FinalName" -Algorithm SHA256).Hash
+              $Hash | Out-File -FilePath "$TargetDir/hash.txt" -Encoding ascii
+              
+              # Simple HTML
+              $Html = "<html><body><h1>DrissionPage $VERSION</h1><a href='$FinalName'>$FinalName</a><br><a href='hash.txt'>Hash (SHA256)</a></body></html>"
+              $Html | Out-File -FilePath "$TargetDir/index.html" -Encoding utf8
+          } else {
+              Write-Error "Compiled .pyd file not found!"
+              exit 1
+          }
 
       - name: Deploy to GitHub Pages 🚀
         uses: JamesIves/github-pages-deploy-action@v4
