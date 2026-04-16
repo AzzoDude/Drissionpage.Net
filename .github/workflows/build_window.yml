@@ -1,0 +1,86 @@
+name: build window
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'DrissionPage Version (e.g., v4.1.0.17)'
+        required: true
+        default: 'v4.1.0.17'
+
+permissions:
+  contents: write # Needed to push to gh-pages branch
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Get all history to merge with gh-pages if needed
+
+      - name: Download DrissionPage Source
+        shell: bash
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          URL="https://github.com/g1879/DrissionPage/archive/refs/tags/${VERSION}.zip"
+          curl -L -o drission.zip "$URL"
+          unzip drission.zip
+          mv DrissionPage-${VERSION/v/} DrissionPageSource
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Nuitka and Requirements
+        run: pip install nuitka requests cssselect
+
+      - name: Compile with Nuitka
+        uses: Nuitka/Nuitka-Action@main
+        with:
+          nuitka-version: main
+          script-name: DrissionPageSource/DrissionPage
+          mode: module
+          lto: yes
+          output-file: drissionpage_win_amd64.pyd
+          include-package: DrissionPageSource/DrissionPage
+
+      - name: Prepare Assets for Release
+        shell: pwsh
+        run: |
+          $VERSION = "${{ github.event.inputs.version }}"
+          $BuildDir = "deploy_folder/$VERSION"
+          New-Item -ItemType Directory -Force -Path $BuildDir
+          
+          # Move compiled file
+          $CompiledFile = Get-ChildItem -Filter "*.pyd" | Select-Object -First 1
+          Move-Item $CompiledFile.FullName "$BuildDir/drissionpage_win_amd64.pyd"
+          
+          # Generate Hash
+          $Hash = (Get-FileHash "$BuildDir/drissionpage_win_amd64.pyd" -Algorithm SHA256).Hash
+          $Hash | Out-File -FilePath "$BuildDir/hash.txt" -Encoding ascii
+          
+          # Create a simple index.html for this release
+          $HtmlContent = @"
+          <html>
+          <body>
+            <h1>Release $VERSION</h1>
+            <ul>
+              <li><a href='drissionpage_win_amd64.pyd'>Download .pyd</a></li>
+              <li><a href='hash.txt'>View SHA256 Hash</a></li>
+            </ul>
+            <p>Built on: $(Get-Date)</p>
+          </body>
+          </html>
+          "@
+          $HtmlContent | Out-File -FilePath "deploy_folder/index.html" -Encoding utf8
+
+      - name: Deploy to GitHub Pages 🚀
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: deploy_folder
+          branch: gh-pages # The branch the action will deploy to.
+          target-folder: releases/${{ github.event.inputs.version }} # Keeps releases organized
