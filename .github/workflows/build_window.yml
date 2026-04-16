@@ -18,6 +18,8 @@ jobs:
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Necessary for pushing back to the repo
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -68,13 +70,13 @@ jobs:
               
               $Html = @"
           <html>
-          <body style='font-family: sans-serif; padding: 20px;'>
-            <h1>DrissionPage $VERSION</h1>
-            <hr>
-            <ul>
-              <li><a href='$FinalName'>Download $FinalName</a></li>
-              <li><a href='hash.txt'>SHA256 Hash</a></li>
-            </ul>
+          <body style='font-family: sans-serif; padding: 30px; line-height: 1.6;'>
+            <h1>DrissionPage $VERSION Build</h1>
+            <div style='background: #f4f4f4; padding: 15px; border-radius: 8px;'>
+              <p><strong>Binary:</strong> <a href='$FinalName'>$FinalName</a></p>
+              <p><strong>SHA256:</strong> <a href='hash.txt'>View Hash</a></p>
+            </div>
+            <p><small>Automated build for AzzoDude</small></p>
           </body>
           </html>
           "@
@@ -84,17 +86,21 @@ jobs:
               exit 1
           }
 
-      # This step installs the missing requirement for the deployment action
-      - name: Install rsync for Windows
-        run: choco install rsync -y
-
-      - name: Deploy to GitHub Pages 🚀
-        uses: JamesIves/github-pages-deploy-action@v4
-        with:
-          folder: deploy_folder
-          branch: gh-pages
-          clean: false
-          single-commit: true
-          git-config-name: AzzoDude
-          git-config-email: AzzoDude@users.noreply.github.com
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Deploy via Pure Git 🚀
+        shell: pwsh
+        run: |
+          # Configure Identity
+          git config --global user.name "AzzoDude"
+          git config --global user.email "AzzoDude@users.noreply.github.com"
+          
+          # Initialize the deploy folder as a separate repo
+          cd deploy_folder
+          git init
+          git checkout -b gh-pages
+          git add .
+          git commit -m "Deploy DrissionPage ${{ github.event.inputs.version }} to Pages"
+          
+          # Force push to the gh-pages branch of your repo
+          # The GITHUB_TOKEN is used for authentication
+          $RepoUrl = "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          git push $RepoUrl gh-pages --force
