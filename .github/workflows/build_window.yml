@@ -47,8 +47,10 @@ jobs:
       - name: Compile with Nuitka
         shell: bash
         run: |
+          # Use --follow-imports to ensure more code is baked into the binary
           python -m nuitka --module \
             --lto=yes \
+            --follow-imports \
             --assume-yes-for-downloads \
             --output-dir=build_out \
             DrissionPage
@@ -66,43 +68,84 @@ jobs:
           $FinalName = "drissionpage_win_amd64.pyd"
           
           if ($CompiledFile) {
-              # 1. Copy the binary and hash
               Copy-Item $CompiledFile.FullName "$ReleaseDir/$FinalName"
               $Hash = (Get-FileHash "$ReleaseDir/$FinalName" -Algorithm SHA256).Hash
               $Hash | Out-File -FilePath "$ReleaseDir/hash.txt" -Encoding ascii
               
-              # 2. Create the version-specific HTML
-              $VersionHtml = @"
-          <html>
-          <body style='font-family: sans-serif; padding: 30px;'>
-            <h1>DrissionPage $VERSION</h1>
-            <a href='$FinalName'>Download .pyd</a><br>
-            <a href='hash.txt'>SHA256 Hash</a><br><br>
-            <a href='../../index.html'>← Back to all releases</a>
-          </body>
-          </html>
+              # PROFESSIONAL BOOTSTRAP TEMPLATE
+              $HtmlHeader = @"
+          <!DOCTYPE html>
+          <html lang='en'>
+          <head>
+            <meta charset='UTF-8'>
+            <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+            <title>DrissionPage.Net Releases</title>
+            <link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css' rel='stylesheet'>
+            <style>
+              body { background-color: #f8f9fa; color: #212529; }
+              .release-card { border: none; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+              .btn-primary { background-color: #24292e; border: none; }
+              .btn-primary:hover { background-color: #444d56; }
+              .code-block { background: #f1f1f1; padding: 10px; border-radius: 6px; font-family: monospace; font-size: 0.9em; overflow-x: auto; }
+            </style>
+          </head>
+          <body>
+            <nav class='navbar navbar-dark bg-dark mb-5'>
+              <div class='container'>
+                <span class='navbar-brand mb-0 h1'>DrissionPage.Net Distribution</span>
+              </div>
+            </nav>
+            <div class='container'>
           "@
-              $VersionHtml | Out-File -FilePath "$ReleaseDir/index.html" -Encoding utf8
 
-              # 3. CRITICAL: Create the ROOT index.html so you don't get a 404
-              $RootHtml = @"
-          <html>
-          <body style='font-family: sans-serif; padding: 50px; background: #fafafa;'>
-            <div style='max-width: 600px; margin: auto; background: white; padding: 20px; border: 1px solid #ddd; border-radius: 8px;'>
-              <h2>DrissionPage.Net Releases</h2>
-              <hr>
-              <p>Latest Build: <strong>$VERSION</strong></p>
-              <ul>
-                <li><a href='releases/$VERSION/index.html'>View $VERSION Files</a></li>
-              </ul>
-            </div>
-          </body>
-          </html>
+              $HtmlFooter = "</div></body></html>"
+
+              # 1. Create the Release Detail Page
+              $DetailContent = @"
+              <div class='row justify-content-center'>
+                <div class='col-md-8'>
+                  <nav aria-label='breadcrumb'>
+                    <ol class='breadcrumb'>
+                      <li class='breadcrumb-item'><a href='../../index.html'>Releases</a></li>
+                      <li class='breadcrumb-item active'>$VERSION</li>
+                    </ol>
+                  </nav>
+                  <div class='card release-card p-4'>
+                    <h2 class='mb-3'>Release $VERSION</h2>
+                    <p class='text-muted'>Compiled Windows AMD64 Binary (.pyd)</p>
+                    <hr>
+                    <div class='d-grid gap-2 mb-4'>
+                      <a href='$FinalName' class='btn btn-primary btn-lg'>Download $FinalName</a>
+                    </div>
+                    <h5>SHA256 Checksum</h5>
+                    <div class='code-block mb-3'>$Hash</div>
+                    <a href='hash.txt' class='text-decoration-none small text-secondary'>View Raw Hash File</a>
+                  </div>
+                </div>
+              </div>
           "@
-              $RootHtml | Out-File -FilePath "$DeployDir/index.html" -Encoding utf8
-          } else {
-              Write-Error "FATAL: Compiled .pyd file not found!"
-              exit 1
+              ($HtmlHeader + $DetailContent + $HtmlFooter) | Out-File -FilePath "$ReleaseDir/index.html" -Encoding utf8
+
+              # 2. Create the Root Index Page
+              $RootContent = @"
+              <div class='row justify-content-center'>
+                <div class='col-md-8'>
+                  <div class='card release-card p-4'>
+                    <h3 class='mb-4'>Available Builds</h3>
+                    <div class='list-group'>
+                      <a href='releases/$VERSION/index.html' class='list-group-item list-group-item-action d-flex justify-content-between align-items-center p-3'>
+                        <div>
+                          <h6 class='mb-0'>DrissionPage $VERSION</h6>
+                          <small class='text-muted'>Latest Build - $(Get-Date -Format "yyyy-MM-dd")</small>
+                        </div>
+                        <span class='badge bg-success rounded-pill'>Stable</span>
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              </div>
+          "@
+              ($HtmlHeader + $RootContent + $HtmlFooter) | Out-File -FilePath "$DeployDir/index.html" -Encoding utf8
           }
 
       - name: Deploy via Pure Git 🚀
@@ -110,12 +153,10 @@ jobs:
         run: |
           git config --global user.name "AzzoDude"
           git config --global user.email "AzzoDude@users.noreply.github.com"
-          
           cd deploy_folder
           git init
           git checkout -b gh-pages
           git add .
-          git commit -m "Deploy DrissionPage ${{ github.event.inputs.version }}"
-          
+          git commit -m "Deploy Release ${{ github.event.inputs.version }}"
           $RepoUrl = "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
           git push $RepoUrl gh-pages --force
